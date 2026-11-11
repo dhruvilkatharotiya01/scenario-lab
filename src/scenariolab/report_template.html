@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scenario Lab Report</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb; --panel: #f4f3f0; --line: #e2e0da;
+  --text: #0b0b0b; --text2: #52514e; --text3: #75736e;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #6250d6;
+  --heat: 42, 120, 214; --crash: #c4302f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface: #1a1a19; --panel: #252523; --line: #3a3a37;
+    --text: #f0efec; --text2: #c3c2b7; --text3: #9a998f;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #9085e9;
+    --heat: 57, 135, 229; --crash: #e66767;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--surface); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -.01em; }
+h2 { font-size: 19px; margin: 44px 0 4px; }
+.sub { color: var(--text2); margin: 0 0 16px; max-width: 72ch; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 24px; }
+.tile { background: var(--panel); border-radius: 8px; padding: 14px 16px; }
+.tile b { display: block; font-size: 15px; }
+.tile .big { font-size: 30px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tile small { color: var(--text2); display: block; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--text2); font-weight: 550; font-size: 13px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0; color: var(--text2); font-size: 13px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+svg { display: block; width: 100%; height: auto; }
+svg text { fill: var(--text2); font-size: 12px; }
+.grid { stroke: var(--line); }
+#tip { position: fixed; pointer-events: none; background: var(--text); color: var(--surface); padding: 6px 9px;
+  border-radius: 6px; font-size: 13px; opacity: 0; max-width: 260px; z-index: 5; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0; }
+select, button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 10px; max-width: 100%; }
+button { cursor: pointer; }
+canvas { width: 100%; height: 170px; display: block; background: var(--panel); border-radius: 8px; }
+.rule { background: var(--panel); border-radius: 8px; padding: 10px 14px; margin: 8px 0; }
+.rule code { font: 13px ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+.rule small { color: var(--text2); display: block; }
+.note { color: var(--text2); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Scenario Lab Report</h1>
+  <p class="sub" id="intro"></p>
+  <div class="tiles" id="tiles"></div>
+
+  <h2>Results by planner</h2>
+  <p class="sub">"Avoidable crash" means ideal in-lane braking from the moment the threat began would have prevented it. Ranges are 95% Wilson intervals.</p>
+  <div class="scroll"><table id="table"></table></div>
+
+  <h2>Avoidable crash rate by ego speed</h2>
+  <div class="legend" id="legend"></div>
+  <div id="line"></div>
+
+  <h2>Where a planner fails</h2>
+  <div class="controls"><label>Planner <select id="pick"></select></label></div>
+  <p class="sub">Each cell is the avoidable crash rate for that speed and road grip.</p>
+  <div class="scroll"><div id="heat" style="min-width:520px"></div></div>
+  <h2>Failure rules</h2>
+  <p class="sub">A small decision tree fitted to this planner's results. It describes this batch; it is not a safety proof.</p>
+  <div id="rules"></div>
+
+  <h2>Crash replay</h2>
+  <p class="sub">Worst impacts for each planner. Top-down view that follows the ego car. Lane width is exaggerated for clarity.</p>
+  <div class="controls">
+    <label>Crash <select id="replay"></select></label>
+    <button id="play">Play</button>
+  </div>
+  <canvas id="road" height="170"></canvas>
+  <p class="note" id="replayNote"></p>
+</main>
+<div id="tip"></div>
+<script>
+const DATA = /*DATA*/null;
+const SERIES = ['--s1','--s2','--s3','--s4'];
+const pct = x => (100 * x).toFixed(1) + '%';
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const label = {idm:'IDM', idm_aeb:'IDM + AEB', evasive:'Evasive', guarded:'Guarded'};
+const name = p => label[p] || p;
+const tip = $('tip');
+function hover(el, html) {
+  el.addEventListener('mousemove', e => {
+    tip.innerHTML = html; tip.style.opacity = 1;
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - 270) + 'px';
+    tip.style.top = (e.clientY + 14) + 'px';
+  });
+  el.addEventListener('mouseleave', () => tip.style.opacity = 0);
+}
+
+const P = DATA.planners;
+const total = P[0].summary.n;
+$('intro').textContent = `${total.toLocaleString()} generated scenarios for each of ${P.length} planners, seed ${DATA.seed}. Every planner faced the same scenarios.`;
+const ranked = [...P].sort((a, b) => a.summary.failure_rate - b.summary.failure_rate);
+const best = ranked[0], worst = ranked[ranked.length - 1];
+$('tiles').innerHTML = [
+  ['Lowest avoidable crash rate', pct(best.summary.failure_rate), name(best.name)],
+  ['Highest avoidable crash rate', pct(worst.summary.failure_rate), name(worst.name)],
+  ['Scenarios per planner', total.toLocaleString(), 'Latin hypercube sample'],
+  DATA.falsified ? ['Targeted search', `${DATA.falsified.search_failures} vs ${DATA.falsified.random_failures}`,
+    `failures found by search vs random, ${DATA.falsified.budget} runs each`] : null,
+].filter(Boolean).map(t => `<div class="tile"><b>${t[0]}</b><span class="big">${t[1]}</span><small>${esc(t[2])}</small></div>`).join('');
+
+$('table').innerHTML = '<tr><th>Planner</th><th>Avoidable crashes</th><th>Rate (95% CI)</th><th>Unavoidable</th><th>Near misses</th><th>Left-lane crashes</th><th>Mean peak brake</th></tr>' +
+  P.map(p => { const s = p.summary; return `<tr><td>${name(p.name)}</td><td>${s.failures}</td><td>${pct(s.failure_rate)} (${pct(s.ci_low)}–${pct(s.ci_high)})</td><td>${s.unavoidable}</td><td>${s.near_miss}</td><td>${p.neighbour}</td><td>${p.meanBrake.toFixed(1)} m/s²</td></tr>`; }).join('');
+
+$('legend').innerHTML = P.map((p, i) => `<span><i style="background:var(${SERIES[i]})"></i>${name(p.name)}</span>`).join('');
+
+function lineChart() {
+  const W = 900, H = 320, L = 52, R = 16, T = 12, B = 44;
+  const bins = P[0].bySpeed.map(b => b.label);
+  const top = Math.max(.05, ...P.flatMap(p => p.bySpeed.map(b => b.rate))) * 1.1;
+  const x = i => L + i * (W - L - R) / (bins.length - 1), y = v => H - B - v / top * (H - T - B);
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Avoidable crash rate by ego speed for each planner">`;
+  for (let i = 0; i <= 4; i++) { const v = top * i / 4;
+    s += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end">${(v * 100).toFixed(0)}%</text>`; }
+  bins.forEach((b, i) => s += `<text x="${x(i)}" y="${H - B + 20}" text-anchor="middle">${b} km/h</text>`);
+  P.forEach((p, i) => {
+    s += `<polyline fill="none" stroke="var(${SERIES[i]})" stroke-width="2" points="${p.bySpeed.map((b, j) => x(j) + ',' + y(b.rate)).join(' ')}"/>`;
+    p.bySpeed.forEach((b, j) => s += `<circle cx="${x(j)}" cy="${y(b.rate)}" r="4" fill="var(${SERIES[i]})" stroke="var(--surface)" stroke-width="2"/>`);
+  });
+  bins.forEach((b, j) => s += `<rect data-j="${j}" x="${x(j) - (W - L - R) / (bins.length - 1) / 2}" y="${T}" width="${(W - L - R) / (bins.length - 1)}" height="${H - T - B}" fill="transparent"/>`);
+  $('line').innerHTML = s + '</svg>';
+  $('line').querySelectorAll('rect').forEach(r => { const j = +r.dataset.j;
+    hover(r, `<b>${bins[j]} km/h</b><br>` + P.map(p => `${name(p.name)}: ${pct(p.bySpeed[j].rate)} (${p.bySpeed[j].k}/${p.bySpeed[j].n})`).join('<br>')); });
+}
+
+function heat(p) {
+  const W = 760, H = 310, L = 64, T = 8, B = 46, sb = DATA.speedBins, fb = DATA.frictionBins;
+  const cols = sb.length - 1, rows = fb.length - 1, cw = (W - L) / cols, ch = (H - T - B) / rows;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Avoidable crash rate by speed and friction">`;
+  p.heatmap.forEach((row, r) => row.forEach((c, i) => {
+    const rate = c.n ? c.k / c.n : 0, X = L + i * cw, Y = T + (rows - 1 - r) * ch;
+    s += `<rect data-r="${r}" data-i="${i}" x="${X + 1}" y="${Y + 1}" width="${cw - 2}" height="${ch - 2}" rx="4" fill="rgba(var(--heat), ${(0.06 + Math.min(rate / .4, 1) * .94).toFixed(3)})"/>`;
+    s += `<text x="${X + cw / 2}" y="${Y + ch / 2 + 4}" text-anchor="middle" style="fill:${rate > .2 ? '#fff' : 'var(--text2)'};pointer-events:none">${(rate * 100).toFixed(0)}%</text>`;
+  }));
+  for (let i = 0; i < cols; i++) s += `<text x="${L + (i + .5) * cw}" y="${H - B + 20}" text-anchor="middle">${sb[i]}–${sb[i + 1]} km/h</text>`;
+  for (let r = 0; r < rows; r++) s += `<text x="${L - 8}" y="${T + (rows - 1 - r + .5) * ch + 4}" text-anchor="end">µ ${fb[r].toFixed(2)}+</text>`;
+  $('heat').innerHTML = s + '</svg>';
+  $('heat').querySelectorAll('rect').forEach(el => { const c = p.heatmap[+el.dataset.r][+el.dataset.i];
+    hover(el, `${c.k} of ${c.n} scenarios crashed`); });
+  $('rules').innerHTML = p.rules.length ? p.rules.map(r => `<div class="rule"><code>${esc(r.rule)}</code><small>${pct(r.rate)} avoidable crash rate in ${r.samples} scenarios</small></div>`).join('')
+    : '<p class="note">Too few failures, or no region reached a 25% failure rate.</p>';
+}
+
+$('pick').innerHTML = P.map((p, i) => `<option value="${i}">${name(p.name)}</option>`).join('');
+$('pick').value = P.indexOf(worst);
+$('pick').onchange = e => heat(P[+e.target.value]);
+
+const road = $('road'), ctx = road.getContext('2d');
+let frame = 0, timer = null;
+function current() { return DATA.replays[+$('replay').value]; }
+function draw() {
+  const rect = road.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  road.width = rect.width * dpr; road.height = rect.height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = rect.width, H = rect.height; ctx.clearRect(0, 0, W, H);
+  const r = current(); if (!r) return;
+  const f = r.frames[Math.min(frame, r.frames.length - 1)];
+  const scale = W / 150, cy = H * .62, lane = 3.5, pxLane = H / 4.2;
+  const sx = s => 60 + (s - f[1]) * scale, dy = d => cy - d / lane * pxLane;
+  ctx.strokeStyle = css('--text3'); ctx.setLineDash([12, 12]);
+  [-1.5, -.5, .5, 1.5].forEach((l, i) => { ctx.setLineDash(i === 0 || i === 3 ? [] : [12, 12]);
+    ctx.beginPath(); ctx.moveTo(0, dy(l * lane)); ctx.lineTo(W, dy(l * lane)); ctx.stroke(); });
+  ctx.setLineDash([]);
+  const car = (s, d, color) => { ctx.fillStyle = color; ctx.beginPath();
+    ctx.roundRect(sx(s) - 2.25 * scale, dy(d) - 11, 4.5 * scale, 22, 3); ctx.fill(); };
+  f[4].forEach(a => car(a[0], a[1], css('--s2')));
+  car(f[1], f[2], css('--s1'));
+  ctx.fillStyle = css('--text'); ctx.font = '13px system-ui';
+  const lastFrame = frame >= r.frames.length - 1;
+  ctx.fillText(`t ${f[0].toFixed(1)} s   ego ${(f[3] * 3.6).toFixed(0)} km/h${lastFrame ? '   crash' : ''}`, 12, 20);
+  $('replayNote').textContent = `${name(r.planner)} in ${r.kind.replace('_', ' ')}, ${r.speed.toFixed(0)} km/h, grip µ ${r.friction.toFixed(2)}, impact at ${r.impact.toFixed(0)} km/h relative speed, hit the ${r.with === 'neighbour' ? 'left-lane car' : 'scenario car'}. Blue is the ego car.`;
+}
+function stop() { clearInterval(timer); timer = null; $('play').textContent = 'Play'; }
+$('play').onclick = () => {
+  if (timer) return stop();
+  if (frame >= current().frames.length - 1) frame = 0;
+  $('play').textContent = 'Pause';
+  timer = setInterval(() => { frame++; draw(); if (frame >= current().frames.length - 1) stop(); }, 50);
+};
+$('replay').innerHTML = DATA.replays.map((r, i) => `<option value="${i}">${name(r.planner)}: ${r.kind.replace('_', ' ')} at ${r.speed.toFixed(0)} km/h</option>`).join('');
+$('replay').onchange = () => { stop(); frame = 0; draw(); };
+function renderAll() { lineChart(); heat(P[+$('pick').value]); draw(); }
+addEventListener('resize', draw);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw);
+renderAll();
+</script>
+</body>
+</html>

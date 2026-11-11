@@ -1,0 +1,30 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  safety-gate:
+    # Fails the build if the current planner is significantly worse than the
+    # plain IDM + AEB baseline on identical scenarios.
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      - run: scenariolab run --planner idm_aeb --n 500 --out out/baseline.csv
+      - run: scenariolab run --planner guarded --n 500 --out out/candidate.csv
+      - run: scenariolab gate out/baseline.csv out/candidate.csv
