@@ -12,16 +12,18 @@ import numpy as np
 
 KMH = 1 / 3.6
 
-KINDS = ("lead_brake", "cut_in", "cut_out")
+# New kinds go at the end: sampling draws kinds in order from one generator,
+# so appending keeps earlier kinds identical for the same seed.
+KINDS = ("lead_brake", "cut_in", "cut_out", "merge")
 
 # name: (low, high). Speeds are m/s, times are s, distances are m.
 SPACE: dict[str, tuple[float, float]] = {
     "ego_speed": (30 * KMH, 130 * KMH),
-    "gap": (15.0, 80.0),            # bumper-to-bumper distance to the actor
+    "gap": (15.0, 80.0),            # bumper-to-bumper distance to the actor (merge: see sim.py)
     "actor_speed_ratio": (0.5, 1.0),  # actor speed as a fraction of ego speed
-    "threat_time": (1.0, 4.0),      # when the actor starts its manoeuvre
-    "actor_brake": (2.0, 9.0),      # lead_brake: actor deceleration
-    "manoeuvre_time": (1.0, 4.0),   # cut_in / cut_out: lane change duration
+    "threat_time": (1.0, 4.0),      # when the actor starts its manoeuvre (merge: ramp ends)
+    "actor_brake": (2.0, 9.0),      # lead_brake: actor deceleration (merge: ramp acceleration x3)
+    "manoeuvre_time": (1.0, 4.0),   # cut_in / cut_out / merge: lane change duration
     "reveal_gap": (20.0, 120.0),    # cut_out: stopped car beyond the lead
     "friction": (0.35, 1.0),        # road grip; limits braking to friction * g
     "sensor_range": (60.0, 200.0),  # perception range

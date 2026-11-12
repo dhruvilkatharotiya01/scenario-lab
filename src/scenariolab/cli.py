@@ -11,7 +11,7 @@ import pandas as pd
 from . import analysis, report
 from .planners import PLANNERS
 from .runner import run_all
-from .scenarios import sample
+from .scenarios import KINDS, sample
 
 
 def cmd_run(a: argparse.Namespace) -> int:
@@ -34,11 +34,11 @@ def cmd_gate(a: argparse.Namespace) -> int:
 
 def compare_search(planner: str, budget: int, seed: int) -> dict:
     """Spend the same budget on targeted search and random sampling, on every kind."""
-    each = budget // 3
+    each = budget // len(KINDS)
     random_rows = run_all(sample(each, seed + 1), planner)
     found = sum(len(analysis.falsify(planner, kind, each, seed)["failures"])
-                for kind in ("lead_brake", "cut_in", "cut_out"))
-    return {"planner": planner, "budget": each * 3, "search_failures": found,
+                for kind in KINDS)
+    return {"planner": planner, "budget": each * len(KINDS), "search_failures": found,
             "random_failures": int((random_rows.outcome == analysis.FAIL).sum())}
 
 

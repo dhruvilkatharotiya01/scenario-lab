@@ -19,6 +19,7 @@ DURATION = 25.0
 G = 9.81
 MAX_JERK = 25.0  # brakes need time to build pressure
 REACTION_TIME = 1.0  # typical human delay before braking for a car ahead
+MERGE_OFFSET = 35.0  # merge: gap - MERGE_OFFSET is the merger's lead at the ramp end
 
 
 def smoothstep(u: float) -> float:
@@ -40,6 +41,8 @@ class Actor:
     lane_at: float = float("inf")
     lane_time: float = 1.0
     vd: float = 0.0
+    accel: float = 0.0
+    max_speed: float = 0.0
     reactive: bool = False
     noticed_at: float = float("inf")
 
@@ -59,6 +62,8 @@ class Actor:
     def step(self, t: float) -> None:
         if t >= self.brake_at and self.v > self.stop_speed:
             self.v = max(self.stop_speed, self.v - self.brake * DT)
+        if self.accel and self.v < self.max_speed:
+            self.v = min(self.max_speed, self.v + self.accel * DT)
         self.s += self.v * DT
         new_d = self.lane_from + (self.lane_to - self.lane_from) * smoothstep(
             (t - self.lane_at) / self.lane_time)
@@ -86,9 +91,31 @@ def build_actors(sc: Scenario) -> list[Actor]:
         clear_after = sc.threat_time + sc.manoeuvre_time
         stopped_at = first + sc.ego_speed * clear_after + sc.reveal_gap
         actors.append(Actor(s=stopped_at, v=0.0))
+    elif sc.kind == "merge":
+        actors.append(merging_car(sc, actor_v))
     else:
         raise ValueError(f"unknown scenario kind: {sc.kind}")
     return actors
+
+
+def merging_car(sc: Scenario, start_v: float) -> Actor:
+    """A car on a right-hand on-ramp that speeds up towards traffic speed and must
+    merge when the ramp ends, whether or not the gap is good.
+
+    It is placed so that, if the ego holds its speed, the merger's centre is
+    gap - MERGE_OFFSET metres ahead of the ego's when the ramp ends: from 20 m
+    behind to 45 m ahead, which includes being right beside the ego.
+    """
+    accel, top = sc.actor_brake / 3, sc.ego_speed
+    reach = (top - start_v) / accel  # time to reach traffic speed
+    t = sc.threat_time
+    if t <= reach:
+        travelled = start_v * t + accel * t * t / 2
+    else:
+        travelled = start_v * reach + accel * reach * reach / 2 + top * (t - reach)
+    s0 = sc.ego_speed * t + sc.gap - MERGE_OFFSET - travelled
+    return Actor(s=s0, v=start_v, d=-LANE_WIDTH, accel=accel, max_speed=top,
+                 lane_from=-LANE_WIDTH, lane_to=0.0, lane_at=t, lane_time=sc.manoeuvre_time)
 
 
 def overlaps(s1: float, d1: float, s2: float, d2: float) -> bool:

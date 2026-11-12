@@ -135,11 +135,16 @@ class Guarded(Evasive):
        late at high speed on a slippery road.
     2. Check the left lane using closing speed over the whole lane change,
        because a fixed distance misses a car arriving fast from behind.
+    3. Yield to a car beside it that starts moving into its lane. Corridor
+       checks only look ahead, so a merger level with the ego was ignored
+       until it was already overlapping.
     """
     name = "guarded"
     brake_budget: float = 3.0
     lane_change_time: float = 3.0
     safety_gap: float = 8.0
+    merge_speed: float = 0.3  # lateral speed towards the ego that counts as merging
+    merge_window: float = CAR_LENGTH + 3.0
 
     def plan(self, obs: Observation) -> Command:
         lead = lead_in_corridor(obs, obs.d, self.predict_horizon)
@@ -148,9 +153,19 @@ class Guarded(Evasive):
             gap = max(lead.s - obs.s - CAR_LENGTH - 2.0, 0.1)
             needed = (obs.v - lead.v) ** 2 / (2 * gap)
         cmd = super().plan(obs)
-        if needed > self.brake_budget:
+        # Braking is added on top of the parent's command, so a swerve still happens.
+        if needed > self.brake_budget or self._merging_beside(obs):
             return Command(-self.full_brake, cmd.target_lane)
         return cmd
+
+    def _merging_beside(self, obs: Observation) -> bool:
+        for tr in obs.tracks:
+            offset = obs.d - tr.d
+            towards = tr.vd * (1 if offset > 0 else -1)
+            beside = -1.0 < tr.s - obs.s < self.merge_window
+            if CAR_WIDTH <= abs(offset) < LANE_WIDTH + 0.5 and towards > self.merge_speed and beside:
+                return True
+        return False
 
     def _left_clear(self, obs: Observation) -> bool:
         left = LANE_WIDTH
