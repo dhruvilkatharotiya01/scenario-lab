@@ -125,7 +125,7 @@ To test your own planner, subclass `Planner` in `planners.py`, implement `plan()
 - `unavoidable` means ideal in-lane braking fails. A perfect swerve might still avoid the crash.
 - Ego physics is a point-mass model with no tyre or suspension dynamics, on a straight road.
 - Sensor noise and false detections are not modelled.
-- The Dockerfile and GitHub Actions workflow have not been run yet.
+- The Dockerfile has not been built or run yet. The GitHub Actions workflow runs the tests and the safety gate on every push.
 
 ## Layout
 
