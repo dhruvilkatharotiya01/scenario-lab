@@ -118,6 +118,11 @@ def merging_car(sc: Scenario, start_v: float) -> Actor:
                  lane_from=-LANE_WIDTH, lane_to=0.0, lane_at=t, lane_time=sc.manoeuvre_time)
 
 
+def ramp_end_position(sc: Scenario) -> float:
+    """Where the merging car starts to move across: its centre at threat_time."""
+    return sc.ego_speed * sc.threat_time + sc.gap - MERGE_OFFSET
+
+
 def overlaps(s1: float, d1: float, s2: float, d2: float) -> bool:
     return abs(s1 - s2) < CAR_LENGTH and abs(d1 - d2) < CAR_WIDTH
 
@@ -157,6 +162,7 @@ def simulate(sc: Scenario, planner: Planner, record: bool = False) -> Result:
         planner.threat_time = sc.threat_time
 
     limit = sc.friction * G
+    ramp_end = ramp_end_position(sc) if sc.kind == "merge" else None
     delay = max(1, round(sc.latency / DT))
     queue: deque[tuple[Track, ...]] = deque(maxlen=delay)
     res = Result()
@@ -164,7 +170,7 @@ def simulate(sc: Scenario, planner: Planner, record: bool = False) -> Result:
     for step in range(int(DURATION / DT)):
         t = step * DT
         queue.append(visible(actors, s, d, sc.sensor_range))
-        obs = Observation(t, s, d, v, target_lane, queue[0])
+        obs = Observation(t, s, d, v, target_lane, queue[0], ramp_end)
         cmd: Command = planner.plan(obs)
 
         if cmd.target_lane != target_lane:

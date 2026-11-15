@@ -10,7 +10,7 @@ A sample is in [docs/sample-report.html](docs/sample-report.html).
 ## Main result
 
 Adding a swerve to a working emergency-braking planner made it less safe, not more. Testing found
-out why, and the fixes cut avoidable crashes by almost half compared with braking alone.
+out why, and the fixes cut avoidable crashes by 60% compared with braking alone.
 
 8,000 scenarios per planner (2,000 of each kind), seed 42, with a left-lane driver who reacts to
 the ego:
@@ -20,7 +20,7 @@ the ego:
 | IDM | Car following only | 420 | 5.2% (4.8–5.8) | 0 |
 | IDM + AEB | Adds emergency braking and cut-in prediction | 324 | 4.0% (3.6–4.5) | 0 |
 | Evasive | Adds a swerve when the left lane looks clear | 377 | 4.7% (4.3–5.2) | 196 |
-| Guarded | Fixes Evasive's lane check, braking trigger and merge handling | 179 | 2.2% (1.9–2.6) | 12 |
+| Guarded | Fixes Evasive's lane check, braking trigger and merge handling | 130 | 1.6% (1.4–1.9) | 10 |
 
 **The swerve bug:** Evasive checked a fixed distance behind it. All 194 of its avoidable left-lane
 crashes involved a car that started behind the ego. That car was not faster; the ego was braking
@@ -36,31 +36,46 @@ an on-ramp level with the ego was ignored until it was already overlapping. Guar
 when a car beside it starts moving into its lane, and still swerves if the left lane is clear. On
 merges this cut its avoidable crashes from 132 to 108.
 
+**Seeing the merge coming:** braking once the merger moves across is often too late. Guarded now
+also knows from the map where the ramp ends, as a real vehicle would. If a car on the ramp is
+predicted to reach that point level with or just ahead of the ego, Guarded eases off at 3 m/s²
+early. Merge crashes on seed 42 fell from 108 to 59, and the other three scenario kinds are not
+affected at all.
+
 **The gate:** Evasive is blocked against IDM + AEB (170 new crashes, 117 fixed, p = 0.002).
-Guarded passes, but it is not free: it fixes 155 crashes and introduces 10 new ones. An overall
+Guarded passes, but it is not free: it fixes 203 crashes and introduces 9 new ones. An overall
 rate hides that, which is why the gate reports both lists.
 
 ### Check on other data
 
-The merge fix was developed on seed 42, then rerun on five other seeds with 3,000 scenarios each.
-"Before" is Guarded without the merge fix, on the same scenarios.
+Each merge fix was developed on seed 42, then rerun on five other seeds with 3,000 scenarios each.
+Columns show Guarded at each stage on the same scenarios; "Gate p" compares each stage with the
+one before it.
 
-| Seed | IDM + AEB | Evasive | Guarded before | Guarded after | Gate p |
+| Seed | IDM + AEB | Evasive | Guarded, no merge fixes | + yield beside (p) | + map, ease off early (p) |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 126 | 135 | 72 | 74 | 0.77 |
-| 2 | 123 | 140 | 75 | 63 | 0.008 |
-| 3 | 128 | 140 | 82 | 73 | 0.035 |
-| 4 | 132 | 143 | 86 | 76 | 0.013 |
-| 5 | 121 | 140 | 72 | 62 | 0.006 |
+| 1 | 126 | 135 | 72 | 74 (0.77) | 56 (<0.001) |
+| 2 | 123 | 140 | 75 | 63 (0.008) | 50 (<0.001) |
+| 3 | 128 | 140 | 82 | 73 (0.035) | 53 (<0.001) |
+| 4 | 132 | 143 | 86 | 76 (0.013) | 63 (0.001) |
+| 5 | 121 | 140 | 72 | 62 (0.006) | 49 (0.001) |
 
-The fix helped significantly on four seeds and made no real difference on seed 1. It also has a
-cost: Guarded's crashes into the left-lane car rose from 30 to 40 across these five seeds, because
-braking for a merger sometimes coincides with a swerve.
+- **Yield beside** helped significantly on four seeds and made no real difference on seed 1. It
+  raised crashes into the left-lane car from 30 to 40 across these seeds, because braking for a
+  merger sometimes coincides with a swerve.
+- **Ease off early** helped significantly on all five, with 0 or 1 new crash per seed. Left-lane
+  crashes went from 40 to 38.
+- **Comfort:** in seed 42 merges that were safe either way, mean peak braking fell from 3.2 to
+  2.7 m/s², because easing off early replaces harder braking later.
+- **A version that did not work:** I first let Guarded also speed up when the merger would arrive
+  just behind it. That caused 41 new crashes: the ego sped past, slowed back to its normal speed,
+  and the merger hit it from behind. Guarded now only ever eases off.
 
-**Still unsolved:** when the merger is within about 4 m of level with the ego as the ramp ends,
-Guarded still has an avoidable crash in 53% of cases (138 scenarios). Braking alone is often too
-late there, and a better answer probably needs earlier yielding or speeding up, which in turn needs
-a planner that knows where the ramp ends.
+**Still unsolved:** merges level with the ego remain the hardest case when perception latency is
+high. The decision tree's worst rule for Guarded is `gap 30.7–40.6 m and latency > 0.32 s` (merger
+within about 5 m of level at the ramp end), with an avoidable crash in 53% of 66 scenarios. The
+planner's prediction also assumes the merger keeps its current speed, although ramp cars are
+usually still speeding up.
 
 ### How traffic realism changed the conclusion
 
@@ -86,8 +101,8 @@ be tested.
 5. **Gate:** both planners run on identical scenarios and an exact McNemar test checks whether the
    candidate is significantly worse. Evasive is blocked on seed 42 (p = 0.002, exit code 1).
 6. **Search:** a cross-entropy search concentrates on dangerous regions. With 1,200 runs on
-   Guarded it found 120 failures against 22 from random sampling. Found failures cluster, so this
-   measures search efficiency, not 120 separate problems.
+   Guarded it found 106 failures against 16 from random sampling. Found failures cluster, so this
+   measures search efficiency, not 106 separate problems.
 
 ## Usage
 
@@ -125,7 +140,9 @@ To test your own planner, subclass `Planner` in `planners.py`, implement `plan()
 - `unavoidable` means ideal in-lane braking fails. A perfect swerve might still avoid the crash.
 - Ego physics is a point-mass model with no tyre or suspension dynamics, on a straight road.
 - Sensor noise and false detections are not modelled.
-- The Dockerfile has not been built or run yet. The GitHub Actions workflow runs the tests and the safety gate on every push.
+- The Dockerfile has not been built or run yet. The GitHub Actions workflow runs the tests and the
+  safety gate on every push.
+- The ramp end comes from the scenario and is exact. Real map data has errors and latency.
 
 ## Layout
 

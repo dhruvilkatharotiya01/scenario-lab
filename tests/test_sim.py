@@ -129,5 +129,22 @@ def test_guarded_yields_to_a_merger_beside_it():
                  threat_time=3.741, actor_brake=5.945, manoeuvre_time=3.981, reveal_gap=79.832,
                  friction=0.784, sensor_range=169.07, latency=0.009, neighbour_gap=-29.394)
     assert simulate(sc, IDMAEB()).collision
-    assert simulate(sc, Guarded(merge_speed=float("inf"))).collision  # yielding switched off
+    assert simulate(sc, Guarded(merge_speed=float("inf"), ramp_aware=False)).collision  # yielding off
     assert not simulate(sc, Guarded()).collision
+
+
+def test_guarded_uses_the_map_to_yield_before_the_ramp_ends():
+    # Taken from a seed 42 benchmark run: the merger would reach the ramp end just
+    # ahead of the ego. Braking only once it moves across is too late.
+    sc = replace(BASE, kind="merge", ego_speed=33.178, gap=43.25, actor_speed_ratio=0.62,
+                 threat_time=2.429, actor_brake=7.58, manoeuvre_time=2.497, reveal_gap=105.481,
+                 friction=0.793, sensor_range=82.38, latency=0.186, neighbour_gap=-28.507)
+    assert simulate(sc, Guarded(ramp_aware=False)).collision
+    assert not simulate(sc, Guarded()).collision
+
+
+def test_ramp_awareness_only_acts_in_merges():
+    for kind in ("lead_brake", "cut_in", "cut_out"):
+        sc = replace(BASE, kind=kind)
+        a, b = simulate(sc, Guarded()), simulate(sc, Guarded(ramp_aware=False))
+        assert (a.collision, a.min_gap, a.max_brake) == (b.collision, b.min_gap, b.max_brake)

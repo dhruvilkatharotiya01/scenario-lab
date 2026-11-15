@@ -28,6 +28,9 @@ class Observation:
     v: float
     target_lane: int
     tracks: tuple[Track, ...]
+    # Map knowledge: where the on-ramp to the right ends, if there is one. Real
+    # vehicles get this from map data, not from their sensors.
+    ramp_end: float | None = None
 
 
 @dataclass(frozen=True)
@@ -138,6 +141,9 @@ class Guarded(Evasive):
     3. Yield to a car beside it that starts moving into its lane. Corridor
        checks only look ahead, so a merger level with the ego was ignored
        until it was already overlapping.
+    4. Use the map to see a merge conflict coming. If a car on the ramp will
+       reach the ramp end level with or just ahead of the ego, ease off early
+       instead of braking hard once it moves across.
     """
     name = "guarded"
     brake_budget: float = 3.0
@@ -145,6 +151,9 @@ class Guarded(Evasive):
     safety_gap: float = 8.0
     merge_speed: float = 0.3  # lateral speed towards the ego that counts as merging
     merge_window: float = CAR_LENGTH + 3.0
+    ramp_horizon: float = 6.0   # s, how far ahead to look for merge conflicts
+    ramp_margin: float = 10.0   # m, wanted spacing to the merger at the ramp end
+    ramp_aware: bool = True
 
     def plan(self, obs: Observation) -> Command:
         lead = lead_in_corridor(obs, obs.d, self.predict_horizon)
@@ -156,7 +165,28 @@ class Guarded(Evasive):
         # Braking is added on top of the parent's command, so a swerve still happens.
         if needed > self.brake_budget or self._merging_beside(obs):
             return Command(-self.full_brake, cmd.target_lane)
+        if self.ramp_aware and self._ramp_conflict(obs):
+            return Command(min(cmd.accel, -self.brake_budget), cmd.target_lane)
         return cmd
+
+    def _ramp_conflict(self, obs: Observation) -> bool:
+        """True if a ramp car is predicted to reach the ramp end level with or just
+        ahead of the ego, assuming both keep their current speed. Speeding up to
+        pass a merger was tried too, and caused rear-end crashes once the ego
+        slowed back down, so the planner only ever eases off."""
+        if obs.ramp_end is None:
+            return False
+        for tr in obs.tracks:
+            on_ramp = abs(tr.d + LANE_WIDTH) < CAR_WIDTH / 2 and tr.s < obs.ramp_end
+            if not on_ramp:
+                continue
+            t_end = (obs.ramp_end - tr.s) / max(tr.v, 1.0)
+            if t_end > self.ramp_horizon:
+                continue
+            ahead = obs.ramp_end - (obs.s + obs.v * t_end)  # merger minus ego at the ramp end
+            if -CAR_LENGTH / 2 < ahead < CAR_LENGTH + self.ramp_margin:
+                return True
+        return False
 
     def _merging_beside(self, obs: Observation) -> bool:
         for tr in obs.tracks:
